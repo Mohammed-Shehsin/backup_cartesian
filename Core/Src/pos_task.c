@@ -81,15 +81,22 @@ uint8_t MoveToTarget_RunOnce(const TargetPos_t *tgt)
     status_set(ST_BUSY, 1);
     mb_fb[FB_ERR_CODE] = 0;
 
-    printf("\r\n[MOVE] Start (SEQ): X=%d Y=%d Z=%d tol=±%d\r\n",
+    printf("\r\n[MOVE] Start (ONE-WAY): X=%d Y=%d Z=%d tol=±%d\r\n",
            tgt->x_mm, tgt->y_mm, tgt->z_mm, tgt->tol_mm);
+
+    typedef enum { PHASE_X=0, PHASE_Y=1, PHASE_Z=2, PHASE_DONE=3 } phase_t;
+    phase_t phase = PHASE_X;
+
+    // Optional: require N consecutive "ok" reads before locking an axis
+    const int LOCK_SAMPLES = 2;
+    int ok_count = 0;
+
+    static uint32_t lastProg = 0;
 
     for (int iter = 0; iter < MAX_ITERS; iter++)
     {
-        // refresh UART->mb_fb (and your [SENS] printing inside it)
         uart_publish_sensors_to_plc();
 
-        // STOP from PLC (optional)
         if (mb_cmd[CMD_CODE] == MB_CMD_STOP) {
             mb_fb[FB_ERR_CODE] = 99;
             status_set(ST_BUSY, 0);
@@ -111,48 +118,68 @@ uint8_t MoveToTarget_RunOnce(const TargetPos_t *tgt)
         int dy = tgt->y_mm - y;
         int dz = tgt->z_mm - z;
 
-        uint8_t x_ok = in_band(dx, tgt->tol_mm);
-        uint8_t y_ok = in_band(dy, tgt->tol_mm);
-        uint8_t z_ok = in_band(dz, tgt->tol_mm);
-
         // progress print (rate-limited)
-        static uint32_t lastProg = 0;
         uint32_t now = HAL_GetTick();
         if (now - lastProg >= 250) {
             lastProg = now;
-            printf("[MOVE] X=%d Y=%d Z=%d | dx=%d dy=%d dz=%d | ok=%u%u%u\r\n",
-                   x,y,z,dx,dy,dz, (unsigned)x_ok,(unsigned)y_ok,(unsigned)z_ok);
+            printf("[MOVE] phase=%d | X=%d Y=%d Z=%d | dx=%d dy=%d dz=%d\r\n",
+                   (int)phase, x,y,z, dx,dy,dz);
         }
 
-        // done check (first thing after reading)
-        if (x_ok && y_ok && z_ok)
+        // ---------------- ONE-WAY PHASE CONTROL ----------------
+        if (phase == PHASE_X)
         {
-            status_set(ST_BUSY, 0);
-            mb_fb[FB_ERR_CODE] = 0;
-            printf("[MOVE] Reached ✅  X=%d Y=%d Z=%d\r\n", x,y,z);
-            done_pulse(200);
-            return 1;
-        }
+            if (in_band(dx, tgt->tol_mm)) {
+                ok_count++;
+                if (ok_count >= LOCK_SAMPLES) {
+                    phase = PHASE_Y;     // LOCK X forever
+                    ok_count = 0;
+                    printf("[MOVE] X locked ✅ (x=%d)\r\n", x);
+                }
+                osDelay(20);
+                continue;
+            }
 
-        // ---------------- SEQUENTIAL CONTROL ----------------
-        // 1) Move X until OK
-        if (!x_ok) {
+            ok_count = 0;
             GPIO_PinState dir = (dx > 0) ? X_DIR_POS : X_DIR_NEG;
             Stepper_Step(&g_stepX, X_STEP_CHUNK, XY_STEP_DELAY_MS, dir);
             osDelay(20);
             continue;
         }
 
-        // 2) Move Y until OK
-        if (!y_ok) {
+        if (phase == PHASE_Y)
+        {
+            if (in_band(dy, tgt->tol_mm)) {
+                ok_count++;
+                if (ok_count >= LOCK_SAMPLES) {
+                    phase = PHASE_Z;     // LOCK Y forever
+                    ok_count = 0;
+                    printf("[MOVE] Y locked ✅ (y=%d)\r\n", y);
+                }
+                osDelay(20);
+                continue;
+            }
+
+            ok_count = 0;
             GPIO_PinState dir = (dy > 0) ? Y_DIR_NEG : Y_DIR_POS;
             Stepper_Step(&g_stepY, Y_STEP_CHUNK, XY_STEP_DELAY_MS, dir);
             osDelay(20);
             continue;
         }
 
-        // 3) Move Z until OK
-        if (!z_ok) {
+        if (phase == PHASE_Z)
+        {
+            if (in_band(dz, tgt->tol_mm)) {
+                ok_count++;
+                if (ok_count >= LOCK_SAMPLES) {
+                    phase = PHASE_DONE;
+                    printf("[MOVE] Z locked ✅ (z=%d)\r\n", z);
+                }
+                osDelay(20);
+                continue;
+            }
+
+            ok_count = 0;
             motor_dir_t zdir = (dz > 0) ? Z_DIR_POS : Z_DIR_NEG;
             TB6612_Enable(&g_zMotor, 1);
             TB6612_SetDir(&g_zMotor, zdir);
@@ -164,7 +191,16 @@ uint8_t MoveToTarget_RunOnce(const TargetPos_t *tgt)
             continue;
         }
 
-        // If we get here, something is inconsistent, but keep looping safely
+        // DONE
+        if (phase == PHASE_DONE)
+        {
+            status_set(ST_BUSY, 0);
+            mb_fb[FB_ERR_CODE] = 0;
+            printf("[MOVE] Reached ✅  X=%d Y=%d Z=%d\r\n", x,y,z);
+            done_pulse(200);
+            return 1;
+        }
+
         osDelay(20);
     }
 

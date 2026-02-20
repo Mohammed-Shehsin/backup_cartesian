@@ -44,6 +44,7 @@ typedef enum {
 #define MB_CMD_HOME      3u
 #define MB_CMD_BOX1      4u
 #define MB_CMD_BOX2      5u
+#define MB_CMD_PICK      6u
 
 
 extern volatile uint16_t mb_cmd[MB_WINDOW_LEN];

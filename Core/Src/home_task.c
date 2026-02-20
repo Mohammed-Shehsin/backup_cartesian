@@ -3,6 +3,6 @@
 
 uint8_t Home_RunOnce(void)
 {
-    TargetPos_t t = { .x_mm = 100, .y_mm = 300, .z_mm = 90, .tol_mm = 10 };
+    TargetPos_t t = { .x_mm = 250, .y_mm = 300, .z_mm = 90, .tol_mm = 10 };
     return MoveToTarget_RunOnce(&t);
 }
