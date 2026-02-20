@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * File Name          : Target/lwipopts.h
-  * Description        : This file overrides LwIP stack default configuration
-  *                      done in opt.h file.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * File Name          : Target/lwipopts.h
+ * Description        : This file overrides LwIP stack default configuration
+ *                      done in opt.h file.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion --------------------------------------*/
@@ -72,7 +72,7 @@
 /*----- Value in opt.h for TCPIP_MBOX_SIZE: 0 -----*/
 #define TCPIP_MBOX_SIZE 6
 /*----- Value in opt.h for SLIPIF_THREAD_STACKSIZE: 0 -----*/
-#define SLIPIF_THREAD_STACKSIZE 2048
+#define SLIPIF_THREAD_STACKSIZE 1024
 /*----- Value in opt.h for SLIPIF_THREAD_PRIO: 1 -----*/
 #define SLIPIF_THREAD_PRIO 3
 /*----- Value in opt.h for DEFAULT_THREAD_STACKSIZE: 0 -----*/
@@ -111,20 +111,20 @@
 #define CHECKSUM_CHECK_ICMP6 0
 /*-----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
- /* USER CODE BEGIN 1 */
+/* USER CODE BEGIN 1 */
 
- /* Enable LWIP OS mode (required for netconn / sockets) */
- #define NO_SYS 0
+/* Enable LWIP OS mode (required for netconn / sockets) */
+#define NO_SYS 0
 
- /* Use LWIP sys layer with FreeRTOS */
- #define SYS_LIGHTWEIGHT_PROT 1
+/* Use LWIP sys layer with FreeRTOS */
+#define SYS_LIGHTWEIGHT_PROT 1
 
- /* Optional but recommended for your case (netconn is not thread-safe without tcpip thread model) */
- #define LWIP_NETCONN 1
- #define LWIP_SOCKET  1
+/* Optional but recommended for your case (netconn is not thread-safe without tcpip thread model) */
+#define LWIP_NETCONN 1
+#define LWIP_SOCKET  1
 
- /* USER CODE END 1 */
 #define LWIP_ICMP 1
+
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

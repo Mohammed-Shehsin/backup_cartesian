@@ -29,10 +29,16 @@
 #include "app_hw.h"
 #include "modbus_tcp_server.h"
 #include "FreeRTOS.h"
+#include "modbus_regs.h"
 #include "task.h"
+#include "pos_task.h"
 #include "freertos_user.h"
 #include "app_control.h"
-
+#include "uart3_link.h"
+#include "home_task.h"
+#include "box1_task.h"
+#include <string.h>
+#include <stdlib.h>
 
 /* USER CODE END Includes */
 
@@ -56,6 +62,7 @@
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
@@ -72,6 +79,7 @@ static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_USART2_UART_Init(void);
 void StartDefaultTask(void const *argument);
 
 /* USER CODE BEGIN PFP */
@@ -82,25 +90,51 @@ void StartDefaultTask(void const *argument);
 /* USER CODE BEGIN 0 */
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-	HCSR04_EXTI_Callback(&g_us1, GPIO_Pin);
-	HCSR04_EXTI_Callback(&g_us2, GPIO_Pin);
-	HCSR04_EXTI_Callback(&g_us3, GPIO_Pin);
+	if (GPIO_Pin == ECHO1_Pin_Pin)
+		HCSR04_EXTI_Callback(&g_us1, GPIO_Pin);
+	else if (GPIO_Pin == ECHO2_Pin_Pin)
+		HCSR04_EXTI_Callback(&g_us2, GPIO_Pin);
+	else if (GPIO_Pin == ECHO3_Pin_Pin)
+		HCSR04_EXTI_Callback(&g_us3, GPIO_Pin);
+	else {
+		// ignore other EXTI sources (e.g. USER button)
+		return;
+	}
 }
-
-//void vApplicationMallocFailedHook(void)
-//{
-//  taskDISABLE_INTERRUPTS();
-//  // Optionally toggle an LED here
-//  for(;;);
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+//	UART3_Link_OnRxByteIRQ(huart);
 //}
+//void HomeTest_Task(void const *argument) {
+//	(void) argument;
 //
-//void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
-//{
-//  (void)xTask;
-//  (void)pcTaskName;
-//  taskDISABLE_INTERRUPTS();
-//  for(;;);
+//	// Wait a bit so UART starts receiving from Arduino
+//	osDelay(1000);
+//
+//	for (;;) {
+//		// Press USER button to run HOME
+//		if (HAL_GPIO_ReadPin(USER_Btn_GPIO_Port, USER_Btn_Pin)
+//				== GPIO_PIN_SET) {
+//			// debounce
+//			osDelay(50);
+//			while (HAL_GPIO_ReadPin(USER_Btn_GPIO_Port, USER_Btn_Pin)
+//					== GPIO_PIN_SET)
+//				osDelay(10);
+//
+//			printf("\r\n[TEST] BOX! start\r\n");
+//
+//			uint8_t ok = Home_RunOnce();
+//
+//			if (ok)
+//				printf("[TEST] BOX! success\r\n");
+//			else
+//				printf("[TEST] BOX! fail (err=%u)\r\n",
+//						(unsigned) mb_fb[FB_ERR_CODE]);
+//		}
+//
+//		osDelay(50);
+//	}
 //}
+
 /* USER CODE END 0 */
 
 /**
@@ -118,8 +152,7 @@ int main(void) {
 	HAL_Init();
 
 	/* USER CODE BEGIN Init */
-//	SCB_DisableDCache();
-//	SCB_DisableICache();
+
 	/* USER CODE END Init */
 
 	/* Configure the system clock */
@@ -135,14 +168,13 @@ int main(void) {
 	MX_USB_OTG_FS_PCD_Init();
 	MX_TIM1_Init();
 	MX_TIM2_Init();
+	MX_USART2_UART_Init();
 	/* USER CODE BEGIN 2 */
 	HAL_TIM_Base_Start(&htim2);
 	APP_HW_Init();
 	MX_FREERTOS_Init();
-	// MX_LWIP_Init();
+	UART3_Link_Init(&huart2);
 	/* USER CODE END 2 */
-
-
 
 	/* USER CODE BEGIN RTOS_MUTEX */
 	/* add mutexes, ... */
@@ -168,20 +200,16 @@ int main(void) {
 	/* USER CODE BEGIN RTOS_THREADS */
 	/* USER CODE BEGIN RTOS_THREADS */
 	osThreadDef(MB_TCP, ModbusTcpServer_Task, osPriorityNormal, 0, 2048);
-	osThreadDef(MB_HB,  ModbusHeartbeat_Task, osPriorityLow,    0, 1024);
-	osThreadDef(CTRL,   Control_Task,         osPriorityAboveNormal, 0, 2048);
+	osThreadDef(MB_HB, ModbusHeartbeat_Task, osPriorityLow, 0, 1024);
+	osThreadDef(CTRL, Control_Task, osPriorityAboveNormal, 0, 2048);
+	//osThreadDef(homeTest, HomeTest_Task, osPriorityNormal, 0, 1024);
 
 	osThreadCreate(osThread(MB_TCP), NULL);
-	osThreadCreate(osThread(MB_HB),  NULL);
-	osThreadCreate(osThread(CTRL),   NULL);
-	/* USER CODE END RTOS_THREADS */
+	osThreadCreate(osThread(MB_HB), NULL);
+	osThreadCreate(osThread(CTRL), NULL);
+//	osThreadCreate(osThread(homeTest), NULL);
 
-
 	/* USER CODE END RTOS_THREADS */
-//	while (1) {
-//	    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-//	    HAL_Delay(200);
-//	}
 
 	/* Start scheduler */
 	osKernelStart();
@@ -306,7 +334,7 @@ static void MX_TIM2_Init(void) {
 
 	/* USER CODE END TIM2_Init 1 */
 	htim2.Instance = TIM2;
-	htim2.Init.Prescaler = 107;
+	htim2.Init.Prescaler = 71;
 	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
 	htim2.Init.Period = 4294967295;
 	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -327,6 +355,39 @@ static void MX_TIM2_Init(void) {
 	/* USER CODE BEGIN TIM2_Init 2 */
 
 	/* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+ * @brief USART2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USART2_UART_Init(void) {
+
+	/* USER CODE BEGIN USART2_Init 0 */
+
+	/* USER CODE END USART2_Init 0 */
+
+	/* USER CODE BEGIN USART2_Init 1 */
+
+	/* USER CODE END USART2_Init 1 */
+	huart2.Instance = USART2;
+	huart2.Init.BaudRate = 115200;
+	huart2.Init.WordLength = UART_WORDLENGTH_8B;
+	huart2.Init.StopBits = UART_STOPBITS_1;
+	huart2.Init.Parity = UART_PARITY_NONE;
+	huart2.Init.Mode = UART_MODE_TX_RX;
+	huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+	huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+	huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+	if (HAL_UART_Init(&huart2) != HAL_OK) {
+		Error_Handler();
+	}
+	/* USER CODE BEGIN USART2_Init 2 */
+
+	/* USER CODE END USART2_Init 2 */
 
 }
 
@@ -529,10 +590,18 @@ static void MX_GPIO_Init(void) {
 	HAL_NVIC_EnableIRQ(EXTI2_IRQn);
 
 	/* USER CODE BEGIN MX_GPIO_Init_2 */
+
 	/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+	UART3_Link_OnRxByteIRQ(huart);
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+	UART3_Link_OnUartErrorIRQ(huart);
+}
 
 /* USER CODE END 4 */
 
@@ -543,22 +612,20 @@ static void MX_GPIO_Init(void) {
  * @retval None
  */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const *argument)
-{
+void StartDefaultTask(void const *argument) {
+	/* init code for LWIP */
 	MX_LWIP_Init();
-
+	/* USER CODE BEGIN 5 */
 	if (lwipReadySem != NULL) {
-	    osSemaphoreRelease(lwipReadySem);
+		osSemaphoreRelease(lwipReadySem);
 	}
-
-
-    for (;;)
-    {
-        HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
-        osDelay(1000);
-    }
+	/* Infinite loop */
+	for (;;) {
+		HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+		osDelay(1000);
+	}
+	/* USER CODE END 5 */
 }
-
 
 /**
  * @brief  Period elapsed callback in non blocking mode

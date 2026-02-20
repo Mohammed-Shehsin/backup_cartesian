@@ -29,13 +29,13 @@ void HCSR04_Trigger(HCSR04_t *s) {
     s->got_rise = 0;
     s->got_fall = 0;
 
-    HAL_GPIO_WritePin(s->trigPort, s->trigPin, GPIO_PIN_RESET);
-    for(volatile int i=0;i<50;i++);   // ~ small delay
+    HAL_GPIO_WritePin(TRG1_Pin_GPIO_Port, TRG1_Pin_Pin, GPIO_PIN_RESET);
+    osDelay(2);
+    HAL_GPIO_WritePin(TRG1_Pin_GPIO_Port, TRG1_Pin_Pin, GPIO_PIN_SET);
+    for(volatile int i=0;i<500;i++); // ~10us-ish crude
+    HAL_GPIO_WritePin(TRG1_Pin_GPIO_Port, TRG1_Pin_Pin, GPIO_PIN_RESET);
+    osDelay(100);
 
-    HAL_GPIO_WritePin(s->trigPort, s->trigPin, GPIO_PIN_SET);
-    for(volatile int i=0;i<200;i++);  // ~10us delay
-
-    HAL_GPIO_WritePin(s->trigPort, s->trigPin, GPIO_PIN_RESET);
 }
 
 

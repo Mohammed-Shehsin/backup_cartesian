@@ -1,41 +1,52 @@
 #include "app_autotest.h"
 #include <stdio.h>
 #include "cmsis_os.h"
-#include "modbus_regs.h"   // mb_cmd[], CMD_CODE index etc.
+#include "modbus_regs.h"   // mb_cmd[], mb_fb[], CMD_CODE, MB_CMD_STOP
 
-// If you use symbolic command codes, define them ONE place (preferably modbus_regs.h)
-#ifndef CMD_STOP
-#define CMD_STOP 99
-#endif
+#include "stepper.h"
+#include "tb6612.h"
+#include "magnet.h"
 
+// External hardware objects
 extern Stepper_t g_stepX;
 extern Stepper_t g_stepY;
 extern TB6612_t  g_zMotor;
 extern Magnet_t  g_magnet;
-extern HCSR04_t  g_us1, g_us2, g_us3;
+
+// ------------------------------------------------------
+// Abort condition: PLC sets CMD_CODE to STOP (99)
+// ------------------------------------------------------
+#ifndef MB_CMD_STOP
+#define MB_CMD_STOP 99u
+#endif
 
 static inline int should_abort(void)
 {
-    return (mb_cmd[CMD_CODE] == CMD_STOP);
+    return (mb_cmd[CMD_CODE] == MB_CMD_STOP);
 }
 
+// ------------------------------------------------------
+// Print sensors: use values already published by Control_Task
+// Reused registers:
+//   FB_US1_CM10 (2) -> V1_mm
+//   FB_US2_CM10 (3) -> V2_mm
+//   FB_US3_CM10 (4) -> US_mm
+// ------------------------------------------------------
 static void PrintSensors(void)
 {
-    float d1 = HCSR04_ReadCmSafe(&g_us1, 60); osDelay(70);
-    float d2 = HCSR04_ReadCmSafe(&g_us2, 60); osDelay(70);
-    float d3 = HCSR04_ReadCmSafe(&g_us3, 60); osDelay(70);
+    uint16_t v1_mm = mb_fb[FB_US1_CM10];
+    uint16_t v2_mm = mb_fb[FB_US2_CM10];
+    uint16_t us_mm = mb_fb[FB_US3_CM10];
 
-    int i1 = (d1 < 0) ? (int)d1 : (int)(d1 + 0.5f);
-    int i2 = (d2 < 0) ? (int)d2 : (int)(d2 + 0.5f);
-    int i3 = (d3 < 0) ? (int)d3 : (int)(d3 + 0.5f);
-
-    printf("S1:%d S2:%d S3:%d | edges:%lu %lu %lu\r\n",
-           i1, i2, i3,
-           (unsigned long)g_us1.edges,
-           (unsigned long)g_us2.edges,
-           (unsigned long)g_us3.edges);
+    printf("V1:%u mm  V2:%u mm  US:%u mm\r\n",
+           (unsigned)v1_mm,
+           (unsigned)v2_mm,
+           (unsigned)us_mm);
 }
 
+// ------------------------------------------------------
+// Z motor run helper
+// ------------------------------------------------------
 static void Z_Run(motor_dir_t dir, int cycles)
 {
     TB6612_Enable(&g_zMotor, 1);
@@ -44,18 +55,21 @@ static void Z_Run(motor_dir_t dir, int cycles)
     for (int i = 0; i < cycles; i++) {
         if (should_abort()) break;
         TB6612_SoftPwmOnce(&g_zMotor, 80, 50);
-        osDelay(1); // yield
+        osDelay(1); // yield to RTOS
     }
 
     TB6612_Enable(&g_zMotor, 0);
 }
 
+// ------------------------------------------------------
+// Main AutoTest sequence
+// ------------------------------------------------------
 void AutoTest_RunOnce(void)
 {
     printf("\r\n=== AUTO TEST START ===\r\n");
 
     if (should_abort()) goto abort;
-    printf("[0] Sensors baseline\r\n");
+    printf("[0] Sensors baseline (from UART->Control_Task)\r\n");
     PrintSensors();
 
     if (should_abort()) goto abort;
@@ -106,7 +120,7 @@ void AutoTest_RunOnce(void)
     return;
 
 abort:
-    printf("=== AUTO TEST ABORTED (CMD_STOP) ===\r\n\r\n");
+    printf("=== AUTO TEST ABORTED (MB_CMD_STOP) ===\r\n\r\n");
     // safe shutdown
     TB6612_Enable(&g_zMotor, 0);
     Magnet_Off(&g_magnet);

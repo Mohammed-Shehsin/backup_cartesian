@@ -11,5 +11,7 @@
 #include <stdint.h>
 
 void Control_Task(void const *argument);
+void uart_publish_sensors_to_plc(void);
+
 
 #endif /* APP_CONTROL_H_ */

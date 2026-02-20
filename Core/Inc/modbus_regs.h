@@ -5,7 +5,7 @@
 
 #define MB_WINDOW_LEN     8
 #define MODBUS_ADDR_BASE  0   // Correct for MB_DATA_ADDR := 0 style addressing
-
+//#define MODBUS_ADDR_BASE  40001
 // --------------------
 // Command window (PLC -> STM32) : W_HR[0..7]
 // --------------------
@@ -41,6 +41,10 @@ typedef enum {
 #define MB_CMD_EXEC_MOVE  1u
 #define MB_CMD_AUTOTEST   2u
 #define MB_CMD_STOP       99u
+#define MB_CMD_HOME      3u
+#define MB_CMD_BOX1      4u
+#define MB_CMD_BOX2      5u
+
 
 extern volatile uint16_t mb_cmd[MB_WINDOW_LEN];
 extern volatile uint16_t mb_fb[MB_WINDOW_LEN];
